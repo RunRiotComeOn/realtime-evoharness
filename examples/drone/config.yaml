@@ -1,0 +1,42 @@
+# Drone example: no network needed with the default decision backend.
+env: env:DroneEnv
+python_path: ["."]
+seed: seed
+domain_brief: brief.md
+
+scenarios:
+  train: [a1, a2, a3, a4, a5, a6]
+  test: [b1, b2, b3, b4]
+
+objective:
+  metric: time_s
+  direction: min
+  aggregate: sum
+  failure_value: 90
+  description: "total flight time over the scenarios"
+  unit: s
+
+gate:
+  scenarios: train
+  min_gain: 0.05
+  constraints:
+    - {metric: unfinished, max_increase: 0}
+    - {metric: errors, max: 0}
+
+decision:
+  backend: default          # default | random | openai_compatible | jev | python
+  timing: blocking
+  lead: 15                  # metres before the previous waypoint
+
+# The proposer and the verifier: any OpenAI-compatible endpoint. The key is read from the named environment variable.
+proposer:
+  backend: openai_compatible
+  base_url: https://api.openai.com/v1
+  model: gpt-5
+  api_key_env: OPENAI_API_KEY
+verifier:
+  enabled: true
+
+loop:
+  rounds: 20
+parallel: 4

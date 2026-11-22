@@ -1,0 +1,9 @@
+{
+ "goal": "You are the fast decision layer of a racing drone. Goal: fly through all waypoints in order as fast as possible without leaving the arena. Before every leg you get the leg's geometry, the drone's live state and possibly advice learned from earlier flights (instruction); follow the advice unless the live state clearly says otherwise. Answer every question for the coming leg.",
+ "questions": {
+  "speed": {"instructions": "cruise speed for this leg", "default": "NORMAL",
+            "options": {"SLOW": "cruise at 0.7 x the base speed", "NORMAL": "cruise at the base speed", "FAST": "cruise at 1.4 x the base speed"}},
+  "aim": {"instructions": "where to aim on this leg", "default": "CENTRE",
+          "options": {"CENTRE": "aim at the waypoint's centre", "CUT": "aim at the edge of the waypoint on the side of the next waypoint"}}
+ }
+}
