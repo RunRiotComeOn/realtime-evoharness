@@ -6,7 +6,7 @@ must be JSON-serialisable (dicts, lists, numbers, strings), except the executor 
 The executor (part of the harness, evolved by the proposer) follows the contract described by Env.EXECUTOR_DOC:
 
     class Executor:
-        def __init__(self, ctx, action_space): ...      # ctx = Env.executor_context()
+        def __init__(self, ctx, decision_interface): ...      # ctx = Env.executor_context()
         def commit(self, point_id, choice): ...         # a decision point's answers {question: LABEL}; may be repeated
         def act(self, obs): ...                         # every control tick; returns what Env.step accepts
         def sample(self): ...                           # optional: {name: number} of internal reference values, traced

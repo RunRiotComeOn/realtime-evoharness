@@ -1,17 +1,17 @@
 """A harness: the three evolvable parts of a real-time decision agent, kept in one directory.
 
-  action_space.json   what the decision model is asked at every decision point:
-                      {"goal": text, "questions": {name: {"instructions", "default", "options": {LABEL: description}}}}
-  executor.py         class Executor: turns the committed choices into controls, every control tick
-  playbook.json       advice shown to the decision model:
-                      {"default": {question: LABEL}, "rules": [{"when": [{"field", "op", "value"}], "then": {question: LABEL}, "note"}]}
-                      later rules override earlier ones
+  decision_interface.json   the Decision Interface: what the decision model is asked at every decision point:
+                            {"goal": text, "questions": {name: {"instructions", "default", "options": {LABEL: description}}}}
+  executor.py               the Executor: class Executor turns the committed choices into controls, every control tick
+  playbook.json             the Playbook: advice shown to the decision model:
+                            {"default": {question: LABEL}, "rules": [{"when": [{"field", "op", "value"}], "then": {question: LABEL}, "note"}]}
+                            later rules override earlier ones
 
-A change item edits one part:
+An edit (an "item" in the proposal's JSON) changes one part:
   {"part": "executor", "op": "replace", "old": exact text (must occur once), "new": text}
   {"part": "executor", "op": "rewrite", "source": the whole file}
-  {"part": "action_space" | "playbook", "op": "set", "path": [keys...], "value": json}
-  {"part": "action_space" | "playbook", "op": "delete", "path": [keys...]}
+  {"part": "decision_interface" | "playbook", "op": "set", "path": [keys...], "value": json}
+  {"part": "decision_interface" | "playbook", "op": "delete", "path": [keys...]}
 Every item also has an "id", a "rationale" and "depends_on" (ids of the items it needs).
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ import re
 import shutil
 import threading
 
-PARTS = ("action_space", "executor", "playbook")
+PARTS = ("decision_interface", "executor", "playbook")
 LABEL = re.compile(r"^[A-Z][A-Z0-9_]{0,23}$")
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,23}$")
 FORBIDDEN_CALLS = {"open", "exec", "eval", "compile", "__import__", "input", "breakpoint", "globals", "vars"}
@@ -65,8 +65,11 @@ class Schema:
 
 def load(path) -> dict:
     path = Path(path)
+    di = path / "decision_interface.json"
+    if not di.exists() and (path / "action_space.json").exists():
+        di = path / "action_space.json"   # harnesses saved before the rename
     return {
-        "action_space": json.loads((path / "action_space.json").read_text()),
+        "decision_interface": json.loads(di.read_text()),
         "playbook": json.loads((path / "playbook.json").read_text()),
         "executor": (path / "executor.py").read_text(),
     }
@@ -79,7 +82,7 @@ def save(h: dict, path) -> Path:
     if tmp.exists():
         shutil.rmtree(tmp)
     tmp.mkdir(parents=True)
-    (tmp / "action_space.json").write_text(json.dumps(h["action_space"], ensure_ascii=False, indent=1))
+    (tmp / "decision_interface.json").write_text(json.dumps(h["decision_interface"], ensure_ascii=False, indent=1))
     (tmp / "playbook.json").write_text(json.dumps(h["playbook"], ensure_ascii=False, indent=1))
     (tmp / "executor.py").write_text(h["executor"])
     if path.exists():
@@ -89,19 +92,19 @@ def save(h: dict, path) -> Path:
 
 
 def digest(h: dict) -> str:
-    blob = json.dumps([h["action_space"], h["playbook"], h["executor"]], sort_keys=True, ensure_ascii=False)
+    blob = json.dumps([h["decision_interface"], h["playbook"], h["executor"]], sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
 # ---------------------------------------------------------------- validation
 
-def validate_action_space(a, schema: Schema):
+def validate_decision_interface(a, schema: Schema):
     lim = schema.limits
     if not isinstance(a, dict) or set(a) - {"goal", "questions"} or not isinstance(a.get("goal"), str) or not a["goal"].strip():
-        raise HarnessError("action_space must be {'goal': text, 'questions': {...}}")
+        raise HarnessError("decision_interface must be {'goal': text, 'questions': {...}}")
     qs = a.get("questions")
     if not isinstance(qs, dict) or not 1 <= len(qs) <= lim.questions:
-        raise HarnessError(f"action_space needs 1-{lim.questions} questions")
+        raise HarnessError(f"decision_interface needs 1-{lim.questions} questions")
     for name, q in qs.items():
         if not NAME.match(name):
             raise HarnessError(f"question name {name!r}: lowercase letters, digits, _")
@@ -190,8 +193,8 @@ def validate_executor(src, schema: Schema):
 
 
 def validate(h: dict, schema: Schema) -> dict:
-    validate_action_space(h["action_space"], schema)
-    validate_playbook(h["playbook"], h["action_space"], schema)
+    validate_decision_interface(h["decision_interface"], schema)
+    validate_playbook(h["playbook"], h["decision_interface"], schema)
     validate_executor(h["executor"], schema)
     return h
 
@@ -262,8 +265,8 @@ def apply_items(h: dict, items: list) -> dict:
 
 # ---------------------------------------------------------------- run time
 
-def defaults(action_space: dict) -> dict:
-    return {q: s["default"] for q, s in action_space["questions"].items()}
+def defaults(decision_interface: dict) -> dict:
+    return {q: s["default"] for q, s in decision_interface["questions"].items()}
 
 
 def resolve(playbook: dict, values: dict):

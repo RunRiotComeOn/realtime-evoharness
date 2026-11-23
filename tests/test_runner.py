@@ -34,9 +34,9 @@ def test_evaluate_is_memoised_and_totals(cfg, tmp_path):
 
 def test_option_probe_finds_options_without_effect(cfg, tmp_path):
     ev = evaluator(cfg, tmp_path)
-    h = H.apply_item(H.load(DRONE / "seed"), {"part": "action_space", "op": "set", "path": ["questions", "mood"],
+    h = H.apply_item(H.load(DRONE / "seed"), {"part": "decision_interface", "op": "set", "path": ["questions", "mood"],
                                              "value": {"instructions": "mood", "default": "CALM", "options": {"CALM": "calm", "ANGRY": "angry"}}})
-    h = H.apply_item(h, {"part": "action_space", "op": "set", "path": ["questions", "speed", "options", "SAME"], "value": "like NORMAL"})
+    h = H.apply_item(h, {"part": "decision_interface", "op": "set", "path": ["questions", "speed", "options", "SAME"], "value": "like NORMAL"})
     h = H.apply_item(h, {"part": "executor", "op": "replace", "old": '"FAST": 1.4}', "new": '"FAST": 1.4, "SAME": 1.0}'})
     assert ev.smoke(h) is None
     assert sorted(ev.dead[H.digest(h)]) == [["mood", "*"], ["speed", "SAME"]]

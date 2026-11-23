@@ -2,14 +2,15 @@
 
   1. the champion runs every training scenario (memoised by harness digest);
   2. the proposer sees the whole harness, the episodes point by point, the edit log, recent incidents and the options
-     without effect, may call lookup tools, and proposes change items (or opens a development branch);
-  3. items are applied and validated; errors go back to the proposer (loop.repairs times); a short smoke run on every
+     without effect, may call lookup tools, and proposes edits, called items in the JSON (or opens a development branch);
+  3. the edits are applied and validated; errors go back to the proposer (loop.repairs times); a short smoke run on every
      training scenario must not crash, also with any single item left out or added alone;
-  4. the candidate (all items), every leave-one-out version and every item alone run the training scenarios;
-  5. the verifier (an LLM reviewer, or a numeric rule) admits or rejects each item;
-  6. the champion plus the admitted items must pass the gate against the champion; then it becomes the champion.
+  4. the Evaluator runs the candidate (all edits), every leave-one-out version and every edit alone on the training
+     scenarios;
+  5. the Reviewer (an LLM, or a numeric rule) admits or rejects each edit;
+  6. the champion plus the admitted edits must pass the Admission Gate against the champion; then it becomes the champion.
 Development branches: a structural change goes in as one unit and is repaired for a few rounds; it merges (after the
-verifier) as soon as it passes the gate. A passing branch with options without effect is first sent back to be wired.
+Reviewer) as soon as it passes the Admission Gate. A passing branch with options without effect is first sent back to be wired.
 Everything is written to the output directory; a stopped run resumes at its next round with the same command.
 """
 from __future__ import annotations
@@ -39,7 +40,7 @@ class Evolution:
         self.schema = H.Schema(features=dict(self.Env.FEATURES), limits=H.Limits.from_config(cfg["limits"], cfg["executor_imports"]))
         self.ev = Evaluator(cfg, self.out, self.schema)
         self.obj = Objective(cfg["objective"])
-        self.gate = Gate(cfg["gate"], self.obj)
+        self.gate = Gate(cfg["admission_gate"], self.obj)
         self.lang = cfg["prompt_language"]
         self.P = PR.get(self.lang)
         self.L = cfg["loop"]
@@ -64,9 +65,9 @@ class Evolution:
         return self._proposer
 
     @property
-    def verifier(self):
+    def reviewer(self):
         if self._verifier is None:
-            self._verifier = llm.make(dict(self.cfg.verifier_backend(), tag=self.out.name))
+            self._verifier = llm.make(dict(self.cfg.reviewer_backend(), tag=self.out.name))
         return self._verifier
 
     def build(self, base, items, keep):
@@ -78,14 +79,14 @@ class Evolution:
     def branches_on(self):
         return bool(self.L["branches"]["enabled"])
 
-    def verifier_on(self):
-        return bool(self.cfg["verifier"].get("enabled", True))
+    def reviewer_on(self):
+        return bool(self.cfg["reviewer"].get("enabled", True))
 
     def evaluate(self, h, tag):
         return self.ev.evaluate(h, self.train, 1, tag)
 
     def gate_eval(self, h, train_ev=None, tag="gate"):
-        scen, rep = self.cfg.gate_scenarios(), int(self.cfg["gate"]["repeats"])
+        scen, rep = self.cfg.gate_scenarios(), int(self.cfg["admission_gate"]["repeats"])
         if train_ev is not None and scen == self.train and rep == 1:
             return train_ev
         return self.ev.evaluate(h, scen, rep, tag)
@@ -98,7 +99,7 @@ class Evolution:
         return ok, why, ne
 
     def gate_text(self):
-        g = self.cfg["gate"]
+        g = self.cfg["admission_gate"]
         parts = [f"scenarios {self.cfg.gate_scenarios() if g['scenarios'] != 'train' else 'the training scenarios'}"]
         need = g.get("min_gain") or 0
         parts.append(f"improves the objective by at least {need}" + (f" or {g['min_gain_relative']:.2%} of it" if g.get("min_gain_relative") else "") if need or g.get("min_gain_relative") else "improves the objective")
@@ -127,8 +128,8 @@ class Evolution:
                        features=json.dumps(self.schema.features, ensure_ascii=False), gate=self.gate_text(),
                        domain_brief=("\n" + brief + "\n") if brief else "", mode=mode, tools=self.tools_text())
 
-    def system_verifier(self):
-        return PR.fill(self.P.VERIFIER, gate=self.gate_text(), objective=self.obj.phrase(), failure_value=self.obj.failure_value)
+    def system_reviewer(self):
+        return PR.fill(self.P.REVIEWER, gate=self.gate_text(), objective=self.obj.phrase(), failure_value=self.obj.failure_value)
 
     # ---- tools --------------------------------------------------------------------------------------------------
     def propose_tool(self):
@@ -141,8 +142,8 @@ class Evolution:
                                "items": {"type": "array", "items": item, "minItems": 1, "maxItems": self.L["max_items"]},
                                "open_branch": {"type": "boolean", "description": self.P.OPEN_BRANCH_DESC}}, "required": ["hypothesis", "items"]}}
 
-    def verify_tool(self):
-        return {"name": "verify_items", "description": self.P.VERIFY_DESC,
+    def review_tool(self):
+        return {"name": "review_items", "description": self.P.REVIEW_DESC,
                 "parameters": {"type": "object", "properties": {"verdicts": {"type": "array", "items": {"type": "object", "properties": {
                     "id": {"type": "string"}, "admit": {"type": "boolean"}, "reason": {"type": "string"}}, "required": ["id", "admit", "reason"]}}},
                     "required": ["verdicts"]}}
@@ -298,7 +299,7 @@ class Evolution:
             extra = P.BRANCH_MODE
         else:
             extra = (PR.fill(P.BRANCH_HINT, branch_rounds=b["rounds"], branch_max=b["max"]) if self.branches_on() else P.NO_BRANCH)
-            extra += P.FOCUS_ACTION_SPACE if focus == "action_space" else ""
+            extra += P.FOCUS_DECISION_INTERFACE if focus == "decision_interface" else ""
         if self.parts() != set(H.PARTS):
             extra += PR.fill(P.ONLY_PARTS, parts=", ".join(sorted(self.parts())))
         return extra
@@ -308,13 +309,13 @@ class Evolution:
         With branch (the branch view), champion/champ_ev are the branch's harness and episodes."""
         P = self.P
         system = self.system_proposer(self.mode_text(focus, branch, wire))
-        user = {"harness": {"action_space": champion["action_space"], "playbook": champion["playbook"], "executor.py": champion["executor"]},
+        user = {"harness": {"decision_interface": champion["decision_interface"], "playbook": champion["playbook"], "executor.py": champion["executor"]},
                 ("branch_result" if branch else "champion_result"): V.summary(champ_ev, self.obj),
                 "episodes": V.episodes_view(champ_ev, self.obj), "edit_log": self.state["log"][-int(self.L["edit_log"]):]}
         if branch:
             user["branch"] = branch
         self.ev.smoke(champion)
-        user["options_without_effect"] = V.dead_text(self.ev.dead.get(H.digest(champion), []), champion["action_space"], self.lang) or "(none)"
+        user["options_without_effect"] = V.dead_text(self.ev.dead.get(H.digest(champion), []), champion["decision_interface"], self.lang) or "(none)"
         if self.state.get("incidents"):
             user["recent_incidents"] = self.state["incidents"]
         msg = json.dumps(user, ensure_ascii=False)
@@ -354,14 +355,14 @@ class Evolution:
                     dropped_all.append({"id": "(runtime)", "reason": json.dumps(err, ensure_ascii=False)[:600], "attempt": attempt})
                     repair = PR.fill(P.REPAIR_BRANCH_RUNTIME, detail=json.dumps({"previous_items": args.get("items"), "runtime_problem": err}, ensure_ascii=False)[:24000])
                     continue
-            if focus == "action_space" and items and not any(it["part"] == "action_space" for it in items):
+            if focus == "decision_interface" and items and not any(it["part"] == "decision_interface" for it in items):
                 dropped_all.append({"id": "(focus)", "reason": P.FOCUS_DROP, "attempt": attempt})
                 repair = P.REPAIR_FOCUS
                 continue
             crash = self.runtime_problems(champion, items) if items else None
             nd = self.new_dead(champion, self.build(champion, items, ids)) if items and not crash else []
             if nd:
-                txt = V.dead_text(nd, self.build(champion, items, ids)["action_space"], self.lang)
+                txt = V.dead_text(nd, self.build(champion, items, ids)["decision_interface"], self.lang)
                 dropped_all.append({"id": "(no effect)", "reason": "; ".join(txt)[:600], "attempt": attempt})
                 repair = PR.fill(P.REPAIR_DEAD, detail=json.dumps({"previous_items": args.get("items"), "options_without_effect": txt}, ensure_ascii=False)[:24000])
                 continue
@@ -374,9 +375,9 @@ class Evolution:
             repair = PR.fill(P.REPAIR_INVALID, detail=json.dumps({"previous_items": args.get("items"), "problems": dropped}, ensure_ascii=False)[:20000])
         return None, calls, dropped_all
 
-    # ---- verifier ---------------------------------------------------------------------------------------------
+    # ---- reviewer ---------------------------------------------------------------------------------------------
     def rule_verdicts(self, items, champ_ev, alone):
-        """Without the LLM verifier: admit an item when, added alone, it gains at least the gate's min_gain, runs
+        """Without the LLM Reviewer: admit an item when, added alone, it gains at least the gate's min_gain, runs
         without errors, and no scenario loses as much as the total gain."""
         out = {}
         need = self.gate.required_gain(champ_ev)
@@ -396,13 +397,13 @@ class Evolution:
 
     def review(self, user, ids):
         try:
-            args, meta, _ = self.verifier.call(self.system_verifier(), json.dumps(user, ensure_ascii=False), self.verify_tool(), ask_for_tool=self.P.ASK_FOR_TOOL)
+            args, meta, _ = self.reviewer.call(self.system_reviewer(), json.dumps(user, ensure_ascii=False), self.review_tool(), ask_for_tool=self.P.ASK_FOR_TOOL)
             return {v["id"]: v for v in args.get("verdicts", []) if isinstance(v, dict) and "id" in v}, meta
         except RuntimeError as e:
-            return {i: {"id": i, "admit": False, "reason": PR.fill(self.P.VERIFIER_FAILED, error=str(e)[:200])} for i in ids}, {"error": str(e)[:300]}
+            return {i: {"id": i, "admit": False, "reason": PR.fill(self.P.REVIEWER_FAILED, error=str(e)[:200])} for i in ids}, {"error": str(e)[:300]}
 
-    def verify(self, champion, items, champ_ev, cand_ev, without, alone):
-        if not self.verifier_on():
+    def decide_items(self, champion, items, champ_ev, cand_ev, without, alone):
+        if not self.reviewer_on():
             return self.rule_verdicts(items, champ_ev, alone), {"rule": True}
         user = {"items": [{"id": it["id"], "part": it["part"], "op": it["op"], "rationale": it.get("rationale"), "depends_on": it.get("depends_on") or [],
                            "change": V.item_view(self.build(champion, items, ancestors(items, it["id"])), it),
@@ -425,14 +426,14 @@ class Evolution:
         for d in dropped:
             if d.get("attempt") == len(calls) - 1 or args is None:
                 self.state["log"].append({"round": n, "id": d.get("id"), "part": "-", "op": "-", "rationale": "",
-                                          "verifier": PR.fill(self.P.INVALID_UNTESTED, reason=str(d.get("reason"))[:300]), "admitted": False, "round_outcome": "invalid_item"})
+                                          "reviewer": PR.fill(self.P.INVALID_UNTESTED, reason=str(d.get("reason"))[:300]), "admitted": False, "round_outcome": "invalid_item"})
 
     def round(self, n):
         champion = self.state["champion"]
         champ_ev = self.evaluate(champion, "champion")
         rec = {"round": n, "champion": {"digest": champ_ev["digest"]} | V.summary(champ_ev, self.obj), "started": time.time()}
-        every = int(self.L.get("action_space_every") or 0)
-        focus = "action_space" if every and n % every == 0 and "action_space" in self.parts() else None
+        every = int(self.L.get("decision_interface_every") or 0)
+        focus = "decision_interface" if every and n % every == 0 and "decision_interface" in self.parts() else None
         rec["focus"] = focus
         args, calls, dropped = self.propose(champion, champ_ev, focus)
         rec["proposer_calls"], rec["dropped"] = calls, dropped
@@ -467,15 +468,15 @@ class Evolution:
         rec["without"] = {i: {k: w[k] for k in ("value", "per_scenario", "errors")} for i, w in without.items()}
         rec["alone"] = {i: {k: w[k] for k in ("value", "per_scenario", "errors")} for i, w in alone.items()}
         self.add_incidents(n, champ_ev, [("candidate", cand_ev)] + [("alone " + i, w) for i, w in alone.items()])
-        verdicts, vmeta = self.verify(champion, items, champ_ev, cand_ev, without, alone)
-        rec["verifier_call"], rec["verdicts"] = vmeta, verdicts
+        verdicts, vmeta = self.decide_items(champion, items, champ_ev, cand_ev, without, alone)
+        rec["reviewer_call"], rec["verdicts"] = vmeta, verdicts
         admitted = {i for i in ids if (verdicts.get(i) or {}).get("admit")}
         admitted -= closure(items, set(ids) - admitted)   # nothing whose dependency was rejected
         rec["admitted"] = sorted(admitted)
         nd = self.new_dead(champion, self.build(champion, items, admitted)) if admitted else []
         if nd:
             rec["dead_options"], rec["outcome"], rec["admitted"] = nd, "confirm_failed", []
-            txt = "; ".join(V.dead_text(nd, self.build(champion, items, admitted)["action_space"], self.lang))[:300]
+            txt = "; ".join(V.dead_text(nd, self.build(champion, items, admitted)["decision_interface"], self.lang))[:300]
             for v in verdicts.values():
                 if v.get("id") in admitted:
                     v["reason"] = (v.get("reason") or "") + PR.fill(self.P.DEAD_IN_ADMITTED, detail=txt)
@@ -495,7 +496,7 @@ class Evolution:
             m = self.measured(champ_ev, cand_ev, without[it["id"]], alone[it["id"]])
             self.state["log"].append({"round": n, "id": it["id"], "part": it["part"], "op": it["op"], "path": it.get("path"),
                                       "rationale": (it.get("rationale") or "")[:400], "improves_by": m["improves_by"], "alone_improves_by": m["alone_improves_by"],
-                                      "admitted": it["id"] in admitted, "verifier": (v.get("reason") or "")[:400], "round_outcome": rec["outcome"]})
+                                      "admitted": it["id"] in admitted, "reviewer": (v.get("reason") or "")[:400], "round_outcome": rec["outcome"]})
         return self.finish(rec)
 
     def finish(self, rec):
@@ -506,7 +507,7 @@ class Evolution:
 
     # ---- branches ---------------------------------------------------------------------------------------------
     def try_merge(self, n, rec, champion, champ_ev, b, br_ev):
-        """If the branch passes the gate against the champion, the verifier reviews it as one change. Returns the
+        """If the branch passes the gate against the champion, the reviewer reviews it as one change. Returns the
         outcome or None."""
         ok, why, _ = self.passes(champion, champ_ev, b["harness"], br_ev)
         if not ok:
@@ -525,7 +526,7 @@ class Evolution:
                                                               "change": V.harness_diff(champion, br), "measured": measured}],
                 "champion": V.summary(champ_ev, self.obj), "candidate": V.summary(br_ev, self.obj),
                 "point_time_changes_candidate_vs_champion_s": V.point_changes(self.obj, champ_ev, br_ev, 0.05)}
-        if not self.verifier_on():
+        if not self.reviewer_on():
             verdicts, meta = self.rule_verdicts([{"id": "branch"}], champ_ev, {"branch": br_ev}), {"rule": True}
         else:
             verdicts, meta = self.review(user, ["branch"])
@@ -545,9 +546,9 @@ class Evolution:
         log = rec.setdefault("wiring", [])
         for k in range(int(self.L["branches"]["wire_attempts"])):
             view = {"hypothesis": b["hypothesis"], "history": b["history"], "branch_vs_champion_gain": self.obj.gain(champ_ev["value"], ev["value"]),
-                    "champion_result": V.summary(champ_ev, self.obj), "options_without_effect_to_wire": V.dead_text(nd, h["action_space"], self.lang), "previous_attempts": log}
+                    "champion_result": V.summary(champ_ev, self.obj), "options_without_effect_to_wire": V.dead_text(nd, h["decision_interface"], self.lang), "previous_attempts": log}
             args, calls, dropped = self.propose(h, ev, branch=view, wire=True)
-            entry = {"attempt": k, "options_without_effect": V.dead_text(nd, h["action_space"], self.lang), "proposer_calls": calls, "dropped": dropped}
+            entry = {"attempt": k, "options_without_effect": V.dead_text(nd, h["decision_interface"], self.lang), "proposer_calls": calls, "dropped": dropped}
             log.append(entry)
             if args is None:
                 entry["result"] = "no valid proposal"
@@ -557,7 +558,7 @@ class Evolution:
             new = self.build(h, items, {it["id"] for it in items})
             left = self.new_dead(champion, new)
             if left:
-                entry["result"] = "still without effect: " + "; ".join(V.dead_text(left, new["action_space"], self.lang))[:400]
+                entry["result"] = "still without effect: " + "; ".join(V.dead_text(left, new["decision_interface"], self.lang))[:400]
                 nd = left
                 continue
             new_ev = self.evaluate(new, "branch")
@@ -569,7 +570,7 @@ class Evolution:
                 b["history"].append({"round": n, "what": "wired options without effect", "value": new_ev["value"]})
                 return new, new_ev
             entry["result"] = f"wired but no longer passes the gate: {why}"
-        b["history"].append({"round": n, "what": "merge blocked", "reason": PR.fill(self.P.BRANCH_MERGE_BLOCKED, detail="; ".join(V.dead_text(nd, h["action_space"], self.lang))[:400])})
+        b["history"].append({"round": n, "what": "merge blocked", "reason": PR.fill(self.P.BRANCH_MERGE_BLOCKED, detail="; ".join(V.dead_text(nd, h["decision_interface"], self.lang))[:400])})
         return None
 
     def branch_round(self, n):
@@ -616,7 +617,7 @@ class Evolution:
             self.state["branch"] = None
         self.state["log"].append({"round": n, "id": "branch", "part": "branch", "op": "repair", "rationale": (rec.get("hypothesis") or "")[:300],
                                   "branch_value": br_ev["value"], "champion_value": champ_ev["value"], "round_outcome": rec["outcome"],
-                                  "admitted": rec["outcome"] == "branch_merged", "verifier": ((rec.get("merge_review") or {}).get("verdict") or {}).get("reason", "")[:400]})
+                                  "admitted": rec["outcome"] == "branch_merged", "reviewer": ((rec.get("merge_review") or {}).get("verdict") or {}).get("reason", "")[:400]})
         return self.finish(rec)
 
     # ---- the run ----------------------------------------------------------------------------------------------

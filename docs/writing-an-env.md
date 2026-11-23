@@ -62,7 +62,7 @@ def due(self, obs, point, lead) -> bool       # request the decision for this po
 def current_point(self, obs) -> str | None    # the point the episode is in now
 def step(self, control) -> (obs, done)        # one control tick
 def result(self) -> dict                      # {"finished": bool, <metric>: number, ...}
-def executor_context(self)                    # what Executor(ctx, action_space) receives
+def executor_context(self)                    # what Executor(ctx, decision_interface) receives
 def describe_point(self, point) -> dict       # what the decision model is told about a point
 def live_features(self, obs, point) -> dict   # live numbers at decision time
 def trace_row(self, obs, control) -> list     # one row, in TRACE_FIELDS order
@@ -74,7 +74,7 @@ Each call is made by the framework at a specific time:
 ```
 obs = env.reset(scenario, seed)
 points = env.decision_points()
-ex = Executor(env.executor_context(), action_space)
+ex = Executor(env.executor_context(), decision_interface)
 for every tick:
     for each point not decided yet: if env.due(obs, point, lead): ask the decision model, ex.commit(point id, choice)
     control = ex.act(obs)
@@ -93,7 +93,7 @@ Notes on each method:
   (`"wp3"`, `"section_12"`). Features are plain numbers.
 - **`due(obs, point, lead)`**: it is called every tick for every point not yet decided, so keep it cheap. Return
   `True` for points that should already have been decided, for example the first point at the start.
-- **`current_point(obs)`**: used to add up time and statistics per decision point. The proposer and the verifier see
+- **`current_point(obs)`**: used to add up time and statistics per decision point. The proposer and the reviewer see
   these per-point tables.
 - **`step(control)`**: enforce your scenario's own rules here (resets, penalties, collisions). Those rules are not part
   of the harness, and the proposer cannot change them. Raise an exception for an invalid control. The framework
@@ -125,9 +125,9 @@ where options should matter: different speeds, different distances to the next d
 
 Write a deliberately simple starting harness, three files in one directory (see `examples/drone/seed/`):
 
-- `action_space.json`: a `goal` sentence for the decision model and 1–2 questions with 2–3 options each. Every
+- `decision_interface.json`: a `goal` sentence for the decision model and 1–2 questions with 2–3 options each. Every
   option must change the executor's behaviour.
-- `executor.py`: a `class Executor` with `__init__(self, ctx, action_space)`, `commit(self, point_id, choice)` and
+- `executor.py`: a `class Executor` with `__init__(self, ctx, decision_interface)`, `commit(self, point_id, choice)` and
   `act(self, obs)`. Handle every option of every question. Store the choices per point id and fall back to the
   defaults for points that have not been committed. Imports are limited to `executor_imports` in the config
   (default `math`, `numpy`).

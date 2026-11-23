@@ -40,8 +40,8 @@ def load_executor_module(hdir: Path, tag: str):
     return mod
 
 
-def questions_of(action_space: dict) -> dict:
-    return {q: {"instructions": s["instructions"], "options": dict(s["options"])} for q, s in action_space["questions"].items()}
+def questions_of(decision_interface: dict) -> dict:
+    return {q: {"instructions": s["instructions"], "options": dict(s["options"])} for q, s in decision_interface["questions"].items()}
 
 
 def summarize(rows: list[dict], dt: float) -> dict:
@@ -55,17 +55,17 @@ def summarize(rows: list[dict], dt: float) -> dict:
     return out
 
 
-def option_probe(mod, env, ctx, action_space, point_ids):
+def option_probe(mod, env, ctx, decision_interface, point_ids):
     """For every question and option: a fingerprint of what the executor does when that option is committed at every
     decision point (its state after commit, except copies of the choices, and act() on the Env's probe observations).
     Two options with the same fingerprint behave the same."""
     import numpy as np
-    qs = action_space["questions"]
-    dflt = H.defaults(action_space)
+    qs = decision_interface["questions"]
+    dflt = H.defaults(decision_interface)
     labels = {l for s in qs.values() for l in s["options"]}
     obs_list = env.probe_observations()
     rep = getattr(env, "control_repr", None) or (lambda c: json.dumps(c, sort_keys=True, default=repr))
-    base = mod.Executor(ctx, action_space)
+    base = mod.Executor(ctx, decision_interface)
 
     def state_text(ex):
         parts = []
@@ -88,7 +88,7 @@ def option_probe(mod, env, ctx, action_space, point_ids):
         try:
             ex = copy.deepcopy(base, {id(ctx): ctx})
         except Exception:
-            ex = mod.Executor(ctx, action_space)
+            ex = mod.Executor(ctx, decision_interface)
         for pid in point_ids:
             ex.commit(pid, dict(choice))
         out = [state_text(ex)]
@@ -109,7 +109,7 @@ class Decider:
     def __init__(self, cfg, env, harness, cache):
         self.cfg = cfg["decision"]
         self.env = env
-        self.A = harness["action_space"]
+        self.A = harness["decision_interface"]
         self.P = harness["playbook"]
         self.questions = questions_of(self.A)
         self.defaults = H.defaults(self.A)
@@ -179,13 +179,13 @@ def run(spec: dict) -> dict:
         ctx = env.executor_context()
         try:
             mod = load_executor_module(spec["harness"], dg)
-            ex = mod.Executor(ctx, h["action_space"])
+            ex = mod.Executor(ctx, h["decision_interface"])
         except Exception:
             out.update(error="executor_init", traceback=traceback.format_exc()[-2500:])
             return out
         if spec.get("probe") and hasattr(env, "probe_observations"):
             try:
-                out["probe"] = option_probe(mod, env, ctx, h["action_space"], ids)
+                out["probe"] = option_probe(mod, env, ctx, h["decision_interface"], ids)
             except Exception:
                 out["probe_error"] = traceback.format_exc()[-1500:]
         has_sample = hasattr(ex, "sample")

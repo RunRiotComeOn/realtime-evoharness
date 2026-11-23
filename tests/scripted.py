@@ -1,4 +1,4 @@
-"""A scripted proposer / verifier / decision model for the tests (the `python` backends)."""
+"""A scripted proposer / reviewer / decision model for the tests (the `python` backends)."""
 import json
 
 PROPOSALS = []      # each: propose_harness_changes arguments, a (lookup tool, arguments) tuple, or a callable(system, messages) -> either
@@ -14,10 +14,10 @@ def reset(proposals):
 def chat(system, messages, tools):
     names = [t["name"] for t in tools]
     last = next((m for r, m in reversed(messages) if r == "user"), "")
-    if "verify_items" in names:
-        SEEN.append(("verifier", system, last))
+    if "review_items" in names:
+        SEEN.append(("reviewer", system, last))
         items = json.loads(messages[0][1])["items"]
-        return "verify_items", {"verdicts": [{"id": it["id"], "admit": True, "reason": "scripted: admit"} for it in items]}
+        return "review_items", {"verdicts": [{"id": it["id"], "admit": True, "reason": "scripted: admit"} for it in items]}
     SEEN.append(("proposer", system, last))
     p = PROPOSALS.pop(0) if PROPOSALS else {"hypothesis": "nothing", "items": []}
     if callable(p):

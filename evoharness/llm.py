@@ -1,4 +1,4 @@
-"""Proposer / verifier backends: one conversation that ends in one forced tool call, optionally after lookup tools.
+"""Proposer / reviewer backends: one conversation that ends in one forced tool call, optionally after lookup tools.
 
   openai_compatible  any OpenAI-compatible chat endpoint with tool calls (base_url, model, api_key_env)
   codex              the `codex exec` CLI with the user's own login (model, effort)
@@ -239,5 +239,5 @@ BACKENDS = {"openai_compatible": OpenAICompatible, "codex": Codex, "python": Pyt
 def make(cfg: dict) -> Backend:
     b = cfg.get("backend")
     if b not in BACKENDS:
-        raise ValueError(f"unknown proposer/verifier backend {b!r}; one of {', '.join(BACKENDS)}")
+        raise ValueError(f"unknown proposer/reviewer backend {b!r}; one of {', '.join(BACKENDS)}")
     return BACKENDS[b](cfg)

@@ -11,7 +11,7 @@ FASTER = {"id": "i1", "part": "executor", "op": "replace", "old": "BASE_SPEED = 
 RULE = {"id": "i2", "part": "playbook", "op": "set", "path": ["rules"],
         "value": [{"when": [{"field": "length_m", "op": ">", "value": 25}], "then": {"speed": "FAST"}, "note": "long legs"}],
         "rationale": "long legs have room to accelerate, so fly them fast"}
-USELESS = {"id": "i3", "part": "action_space", "op": "set", "path": ["questions", "mood"],
+USELESS = {"id": "i3", "part": "decision_interface", "op": "set", "path": ["questions", "mood"],
            "value": {"instructions": "mood of the pilot", "default": "CALM", "options": {"CALM": "calm", "ANGRY": "angry"}},
            "rationale": "a mood question that the executor never reads"}
 
@@ -29,24 +29,24 @@ def test_round_adopts_measured_improvements(tmp_path):
     assert log["i1"]["alone_improves_by"] > 0 and log["i1"]["admitted"]
     assert "BASE_SPEED = 9.0" in (tmp_path / "champion" / "executor.py").read_text()
     roles = [r for r, *_ in scripted.SEEN]
-    assert roles == ["proposer", "verifier"]
+    assert roles == ["proposer", "reviewer"]
     system = scripted.SEEN[0][1]
     assert "total flight time" in system and "length_m" in system and "wind" in system   # objective, features, domain brief
 
 
-def test_rule_verifier_rejects_what_does_not_help(tmp_path):
+def test_rule_reviewer_rejects_what_does_not_help(tmp_path):
     slower = dict(FASTER, id="s1", new="BASE_SPEED = 3.0", rationale="slower legs, a deliberately bad change for the test")
     scripted.reset([{"hypothesis": "one good, one bad", "items": [FASTER, slower | {"old": "GAIN = 2.0", "new": "GAIN = 0.5"}]}])
-    evo = Evolution(drone_config(verifier={"enabled": False}), tmp_path)
+    evo = Evolution(drone_config(reviewer={"enabled": False}), tmp_path)
     evo.run(quiet=True)
     rec = evo.state["rounds"][0]
-    assert rec["verifier_call"] == {"rule": True}
+    assert rec["reviewer_call"] == {"rule": True}
     assert rec["admitted"] == ["i1"] and rec["outcome"] == "adopted"
 
 
 def test_gate_blocks_too_small_gains(tmp_path):
     scripted.reset([{"hypothesis": "fly faster", "items": [FASTER]}])
-    evo = Evolution(drone_config(gate={"min_gain": 1000}), tmp_path)
+    evo = Evolution(drone_config(admission_gate={"min_gain": 1000}), tmp_path)
     evo.run(quiet=True)
     rec = evo.state["rounds"][0]
     assert rec["outcome"] == "confirm_failed" and rec["confirm"]["gate_failures"]

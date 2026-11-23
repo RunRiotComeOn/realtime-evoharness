@@ -16,7 +16,7 @@ def drone_config(**over):
     data = yaml.safe_load((DRONE / "config.yaml").read_text())
     data["scenarios"] = {"train": ["a1", "a2", "a3"], "test": ["b1"]}
     data["proposer"] = {"backend": "python", "callable": "scripted:chat"}
-    data["verifier"] = {"enabled": True}
+    data["reviewer"] = {"enabled": True}
     data["python_path"] = [".", str(ROOT / "tests")]
     data["loop"] = {"rounds": 1, "tools": {"trace": 0, "trial_episode": 0, "point_trial": 0}, "smoke_seconds": 3}
     data["parallel"] = 4

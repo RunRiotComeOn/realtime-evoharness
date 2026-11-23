@@ -5,19 +5,22 @@ the agent is split in two:
 
 - a fast **decision model** answers a few multiple-choice questions at every **decision point** (a track section, a
   waypoint, an encounter), and
-- an **executor** (code) turns the committed answers into controls at every control tick.
+- an **Executor** (code) turns the committed answers into controls at every control tick.
 
-The questions (`action_space.json`), the executor (`executor.py`) and advice rules for the decision model
-(`playbook.json`) form the **harness**. Between episodes an offline LLM (the **proposer**) rewrites the harness; every
-change is measured (each item left out, each item alone), reviewed by a **verifier**, and admitted only when the result
-passes your **gate**. Structural changes can grow in development branches.
+The **Decision Interface** (the questions and options, `decision_interface.json`), the **Executor** (`executor.py`) and
+the **Playbook** (advice rules for the decision model, `playbook.json`) form the **harness**. Between episodes an
+offline LLM (the **Proposer**) proposes edits to the harness; the **Evaluator** measures every edit (each edit left out,
+each edit alone), the **Reviewer** admits or rejects each one with a written reason, and the admitted edits become the
+new **champion** only when they pass your **Admission Gate**. Redesigns that need several rounds grow on a
+**Development Branch**.
 
-You bring the scenario: an `Env` class, the scenarios to train, gate and test on, the objective and the gate thresholds.
+You bring the scenario: an `Env` class, the scenarios to train, gate and test on, the objective and the Admission Gate
+thresholds.
 
 ```
 control tick    (Hz)       executor.act(obs) -> control          never waits
 decision point  (seconds)  decision model answers the questions  requested `lead` ahead
-round           (offline)  proposer edits, verifier reviews, gate admits
+round           (offline)  Proposer edits, Evaluator measures, Reviewer reviews, Admission Gate admits
 ```
 
 ## Quick start (no network)
@@ -60,11 +63,11 @@ The step-by-step guide is `docs/writing-an-env.md`; the contracts are in `evohar
 Optional, each switches on a tool or a check: `start_at` (the `point_trial` tool), `probe_observations` (detects options
 that change nothing), `summarize_point`, `incidents` (failure moments shown to the proposer), `control_repr`.
 
-## Objective and gate
+## Objective and Admission Gate
 
 ```yaml
 objective: {metric: time_s, direction: min, aggregate: sum, failure_value: 90, description: "total flight time", unit: s}
-gate:
+admission_gate:
   scenarios: train            # or a list, or {train_plus: [...]}
   repeats: 1
   min_gain: 0.05              # or min_gain_relative: 0.002
@@ -72,12 +75,15 @@ gate:
   per_scenario_max_loss: null
 ```
 
+Configs and harnesses written with the earlier names (`verifier`, `gate`, `action_space.json`, `loop.action_space_every`)
+still load.
+
 ## Backends
 
 - Decision model: `default` (defaults plus playbook advice, a baseline), `random`, `openai_compatible`, `jev`, `python`.
   `decision.timing: blocking` (the scenario waits for answers: reproducible, cached; for evolving) or `deadline`
   (real-time pacing, late answers fall back; for measuring latency). A refused key or too many fallbacks stop the run.
-- Proposer / verifier: `openai_compatible` (optional `fallback` after quota errors), `codex` (`codex exec` with your
+- Proposer / Reviewer: `openai_compatible` (optional `fallback` after quota errors), `codex` (`codex exec` with your
   own login), `python` (your function; the tests use a scripted one).
 
 Prompts exist in English (`prompt_language: en`, default) and Chinese (`zh`).

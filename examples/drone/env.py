@@ -73,7 +73,7 @@ class DroneEnv:
     }
     TRACE_FIELDS = ["x", "y", "vx", "vy", "speed", "ax", "ay", "wind_x", "wind_y", "target"]
     EXECUTOR_DOC = """
-Executor(ctx, action_space)    ctx is a dict: "waypoints" [[x, y], ...] in order, "start" [x, y], "radius" (a waypoint
+Executor(ctx, decision_interface)    ctx is a dict: "waypoints" [[x, y], ...] in order, "start" [x, y], "radius" (a waypoint
                                counts within this distance, m), "arena" (side of the square arena, m; leaving it is a
                                crash), "a_max" (largest acceleration command, m/s^2), "drag" (velocity damping, 1/s),
                                "dt" (s per control tick), "wind_zones" [{"center", "radius", "force": [fx, fy] m/s^2}]

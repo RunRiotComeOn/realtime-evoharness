@@ -54,7 +54,7 @@ def test_executor_static_checks(src, msg):
 def test_sanitize_drops_invalid_and_adds_undeclared_dependency():
     h = seed()
     items = [
-        {"id": "q", "part": "action_space", "op": "set", "path": ["questions", "aim", "options", "WIDE"], "value": "aim wide of the waypoint",
+        {"id": "q", "part": "decision_interface", "op": "set", "path": ["questions", "aim", "options", "WIDE"], "value": "aim wide of the waypoint",
          "rationale": "a third aiming option for wide turns"},
         {"id": "r", "part": "playbook", "op": "set", "path": ["default"], "value": {"aim": "WIDE"},
          "rationale": "use the new option by default everywhere"},

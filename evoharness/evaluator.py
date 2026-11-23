@@ -150,20 +150,20 @@ class Evaluator:
         secs = float(self.cfg["loop"]["smoke_seconds"])
         with ThreadPoolExecutor(self.parallel) as ex:
             eps = list(ex.map(lambda s: self.episode(h, s, max_seconds=secs, probe=True), self.cfg["scenarios"]["train"]))
-        self.dead[d] = dead_options(h["action_space"], [e.get("probe") for e in eps])
+        self.dead[d] = dead_options(h["decision_interface"], [e.get("probe") for e in eps])
         bad = [e for e in eps if e.get("error")]
         self._smoke[d] = None if not bad else {"scenario": bad[0]["scenario"], "error": bad[0]["error"], "traceback": (bad[0].get("traceback") or "")[-1800:]}
         return self._smoke[d]
 
 
-def dead_options(action_space, probes):
+def dead_options(decision_interface, probes):
     """Options that change nothing, from per-scenario probes: [question, LABEL] for an option that behaves exactly like
     the question's default everywhere, [question, '*'] for a question whose options all behave the same."""
     probes = [p for p in probes if p]
     out = []
     if not probes:
         return out
-    for q, spec in action_space["questions"].items():
+    for q, spec in decision_interface["questions"].items():
         if not all(q in p for p in probes):
             continue
         if all(len(set(p[q].values())) == 1 for p in probes):

@@ -10,10 +10,10 @@ SPEED = {"SLOW": 0.7, "NORMAL": 1.0, "FAST": 1.4}
 
 
 class Executor:
-    def __init__(self, ctx, action_space):
+    def __init__(self, ctx, decision_interface):
         self.ctx = ctx
         self.wp = ctx["waypoints"]
-        self.defaults = {q: s["default"] for q, s in action_space["questions"].items()}
+        self.defaults = {q: s["default"] for q, s in decision_interface["questions"].items()}
         self.choices = {}
 
     def commit(self, point_id, choice):

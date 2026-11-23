@@ -16,7 +16,7 @@ objective:
   description: "total flight time over the scenarios"
   unit: s
 
-gate:
+admission_gate:
   scenarios: train
   min_gain: 0.05
   constraints:
@@ -28,13 +28,13 @@ decision:
   timing: blocking
   lead: 15                  # metres before the previous waypoint
 
-# The proposer and the verifier: any OpenAI-compatible endpoint. The key is read from the named environment variable.
+# The proposer and the reviewer: any OpenAI-compatible endpoint. The key is read from the named environment variable.
 proposer:
   backend: openai_compatible
   base_url: https://api.openai.com/v1
   model: gpt-5
   api_key_env: OPENAI_API_KEY
-verifier:
+reviewer:
   enabled: true
 
 loop:

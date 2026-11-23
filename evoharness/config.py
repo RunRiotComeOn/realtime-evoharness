@@ -23,7 +23,7 @@ DEFAULTS = {
         "description": "",          # one line for the prompts, e.g. "total time over the training scenarios, in seconds"
         "unit": "",
     },
-    "gate": {
+    "admission_gate": {
         "scenarios": "train",       # "train", a list, or {"train_plus": [...]}
         "repeats": 1,
         "min_gain": 0.0,            # in objective units, positive = better
@@ -39,13 +39,13 @@ DEFAULTS = {
         "max_fallback": 0.2,
     },
     "proposer": {"backend": "openai_compatible"},
-    "verifier": {"enabled": True},  # backend defaults to the proposer's
+    "reviewer": {"enabled": True},  # backend defaults to the proposer's
     "loop": {
         "rounds": 40,
         "max_items": 16,
         "repairs": 3,
-        "action_space_every": 4,
-        "parts": ["action_space", "executor", "playbook"],
+        "decision_interface_every": 4,
+        "parts": ["decision_interface", "executor", "playbook"],
         "branches": {"enabled": True, "rounds": 4, "extend": 2, "max": 10, "wire_attempts": 2},
         "tools": {"trace": 4, "trial_episode": 3, "point_trial": 20},
         "smoke_seconds": 10.0,
@@ -59,6 +59,25 @@ DEFAULTS = {
     "episode_timeout_s": 900,
     "trace_every": 3,
 }
+
+
+# Names used before the terminology of the paper (Reviewer, Decision Interface, Admission Gate); still accepted.
+LEGACY_KEYS = {"verifier": "reviewer", "gate": "admission_gate"}
+
+
+def upgrade(data: dict | None) -> dict:
+    data = dict(data or {})
+    for old, new in LEGACY_KEYS.items():
+        if old in data and new not in data:
+            data[new] = data.pop(old)
+    loop = data.get("loop")
+    if isinstance(loop, dict):
+        loop = data["loop"] = dict(loop)
+        if "action_space_every" in loop and "decision_interface_every" not in loop:
+            loop["decision_interface_every"] = loop.pop("action_space_every")
+        if isinstance(loop.get("parts"), list):
+            loop["parts"] = ["decision_interface" if p == "action_space" else p for p in loop["parts"]]
+    return data
 
 
 def merge(base, over):
@@ -78,15 +97,15 @@ class Config(dict):
     @classmethod
     def load(cls, path, overrides: dict | None = None) -> "Config":
         path = Path(path).resolve()
-        data = merge(DEFAULTS, yaml.safe_load(path.read_text()) or {})
-        data = merge(data, overrides or {})
+        data = merge(DEFAULTS, upgrade(yaml.safe_load(path.read_text())))
+        data = merge(data, upgrade(overrides))
         cfg = cls(data, path.parent)
         cfg.check()
         return cfg
 
     @classmethod
     def from_dict(cls, data: dict, root=".") -> "Config":
-        cfg = cls(merge(DEFAULTS, data), Path(root).resolve())
+        cfg = cls(merge(DEFAULTS, upgrade(data)), Path(root).resolve())
         cfg.check()
         return cfg
 
@@ -118,7 +137,7 @@ class Config(dict):
         return getattr(importlib.import_module(mod), name)
 
     def gate_scenarios(self) -> list[str]:
-        g = self["gate"]["scenarios"]
+        g = self["admission_gate"]["scenarios"]
         train = list(self["scenarios"]["train"])
         if g == "train" or g is None:
             return train
@@ -126,8 +145,8 @@ class Config(dict):
             return train + [s for s in g["train_plus"] if s not in train]
         return list(g)
 
-    def verifier_backend(self) -> dict:
-        v = dict(self["verifier"])
+    def reviewer_backend(self) -> dict:
+        v = dict(self["reviewer"])
         v.pop("enabled", None)
         return merge(self["proposer"], v) if "backend" not in v else v
 

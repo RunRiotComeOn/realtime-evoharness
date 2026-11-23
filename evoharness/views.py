@@ -1,4 +1,4 @@
-"""What the proposer and the verifier see: compact tables of episodes, traces around incidents, readable diffs."""
+"""What the proposer and the reviewer see: compact tables of episodes, traces around incidents, readable diffs."""
 from __future__ import annotations
 
 import difflib
@@ -68,7 +68,7 @@ def item_view(h, item):
 
 def harness_diff(a, b):
     change = {"executor_diff": "".join(difflib.unified_diff(a["executor"].splitlines(True), b["executor"].splitlines(True), "executor.py", "executor.py", n=3))[:16000]}
-    for part in ("action_space", "playbook"):
+    for part in ("decision_interface", "playbook"):
         if a[part] != b[part]:
             change[part] = {"before": a[part], "after": b[part]}
     return change
@@ -115,8 +115,8 @@ def incidents(ep, base_ep=None):
     return out
 
 
-def dead_text(dead, action_space, lang="en"):
-    qs = action_space["questions"]
+def dead_text(dead, decision_interface, lang="en"):
+    qs = decision_interface["questions"]
     out = []
     for q, lab in dead:
         if lab == "*":
